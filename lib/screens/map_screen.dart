@@ -276,9 +276,9 @@ class _StatusBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!visible) return const SizedBox.shrink();
 
-    final isPin    = state.positionMode == PositionMode.pin;
-    final hasGps   = state.gpsAvailable;
-    final demSynth = state.demSource.contains('synthétique');
+    final isPin      = state.positionMode == PositionMode.pin;
+    final isPaused   = state.gpsPaused;
+    final isAutoSleep = state.gpsAutoSleep;
 
     Color bgColor;
     IconData icon;
@@ -288,35 +288,63 @@ class _StatusBanner extends StatelessWidget {
       bgColor = Colors.deepOrange.shade800;
       icon    = Icons.push_pin;
       text    = 'Mode épingle — appui long pour déplacer';
-    } else if (!hasGps) {
+    } else if (isPaused) {
+      bgColor = isAutoSleep ? Colors.blueGrey.shade700 : Colors.indigo.shade700;
+      icon    = Icons.pause_circle_outline;
+      text    = isAutoSleep
+          ? 'GPS en veille (immobile 10 min) — tap pour reprendre'
+          : 'GPS en pause — tap pour reprendre';
+    } else if (!state.gpsAvailable) {
       bgColor = Colors.orange.shade800;
       icon    = Icons.gps_off;
       text    = state.gpsStatus;
-    } else if (demSynth) {
-      bgColor = Colors.orange.shade800;
-      icon    = Icons.wifi_off;
-      text    = 'Terrain synthétique (pas de réseau)';
     } else {
       bgColor = Colors.black87;
-      icon    = Icons.info_outline;
+      icon    = Icons.gps_fixed;
       text    = '${state.gpsStatus}  •  Appui long = épingle';
     }
 
-    return Material(
-      borderRadius: BorderRadius.circular(12),
-      color: bgColor,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(children: [
-          Icon(icon, size: 16, color: Colors.white70),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text,
-              style: const TextStyle(color: Colors.white, fontSize: 12))),
-          GestureDetector(
-            onTap: onClose,
-            child: const Icon(Icons.close, size: 16, color: Colors.white54),
-          ),
-        ]),
+    return GestureDetector(
+      // Tap sur le bandeau → reprendre si en pause
+      onTap: isPaused ? () => context.read<GhostTimeState>().resumeGps() : null,
+      child: Material(
+        borderRadius: BorderRadius.circular(12),
+        color: bgColor,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(children: [
+            Icon(icon, size: 16, color: Colors.white70),
+            const SizedBox(width: 8),
+            Expanded(child: Text(text,
+                style: const TextStyle(color: Colors.white, fontSize: 12))),
+            // Bouton pause/reprise
+            if (!isPin && state.gpsAvailable)
+              GestureDetector(
+                onTap: isPaused
+                    ? () => context.read<GhostTimeState>().resumeGps()
+                    : () => context.read<GhostTimeState>().pauseGps(),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(isPaused ? Icons.play_arrow : Icons.pause,
+                        size: 14, color: Colors.white),
+                    const SizedBox(width: 3),
+                    Text(isPaused ? 'Reprendre' : 'Pause',
+                        style: const TextStyle(color: Colors.white, fontSize: 11)),
+                  ]),
+                ),
+              ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: onClose,
+              child: const Icon(Icons.close, size: 16, color: Colors.white54),
+            ),
+          ]),
+        ),
       ),
     );
   }

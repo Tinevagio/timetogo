@@ -1,6 +1,7 @@
 // lib/app_state.dart
 
 import 'dart:async';
+import 'dart:math' show sqrt;
 import 'package:flutter/foundation.dart' show debugPrint, ChangeNotifier;
 import 'package:geolocator/geolocator.dart';
 import 'isochrone.dart';
@@ -47,7 +48,17 @@ class GhostTimeState extends ChangeNotifier {
   String _gpsStatus = 'Localisation…';
   String get gpsStatus => _gpsStatus;
 
+  // ── Veille GPS ────────────────────────────────────────────────────────────
+  static const _sleepAfterMinutes = 10; // mise en veille après 10 min d'immobilité
+  bool      _gpsPaused    = false;      // veille manuelle ou automatique
+  bool      _gpsAutoSleep = false;      // true = veille auto (immobilité)
+  DateTime? _lastMoveTime;              // dernière position différente
+
+  bool   get gpsPaused    => _gpsPaused;
+  bool   get gpsAutoSleep => _gpsAutoSleep;
+
   StreamSubscription<Position>? _gpsSub;
+  Timer?                        _sleepTimer;
 
   // ── Isochrones ────────────────────────────────────────────────────────────
   Map<int, List<LatLng>> _contours = {};
@@ -89,6 +100,7 @@ class GhostTimeState extends ChangeNotifier {
   @override
   void dispose() {
     _gpsSub?.cancel();
+    _sleepTimer?.cancel();
     super.dispose();
   }
 
@@ -116,6 +128,7 @@ class GhostTimeState extends ChangeNotifier {
 
       _gpsAvailable = true;
       _gpsStatus    = 'GPS actif';
+      _lastMoveTime = DateTime.now();
 
       // Première position immédiate
       try {
@@ -125,15 +138,7 @@ class GhostTimeState extends ChangeNotifier {
         _onGpsPosition(pos);
       } catch (_) {}
 
-      // Stream continu (toutes les 20m de déplacement)
-      _gpsSub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy:       LocationAccuracy.high,
-          distanceFilter: 20,
-        ),
-      ).listen(_onGpsPosition, onError: (e) {
-        debugPrint('GPS error: $e');
-      });
+      _startGpsStream();
 
     } catch (e) {
       _gpsStatus = 'Erreur GPS';
@@ -142,23 +147,116 @@ class GhostTimeState extends ChangeNotifier {
     }
   }
 
+  void _startGpsStream() {
+    _gpsSub?.cancel();
+    _gpsSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy:       LocationAccuracy.high,
+        distanceFilter: 20,
+      ),
+    ).listen(_onGpsPosition, onError: (e) {
+      debugPrint('GPS error: $e');
+    });
+    _resetSleepTimer();
+  }
+
+  void _stopGpsStream() {
+    _gpsSub?.cancel();
+    _gpsSub = null;
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+  }
+
+  /// Redémarre le timer de veille automatique.
+  /// Appelé à chaque mouvement détecté.
+  void _resetSleepTimer() {
+    _sleepTimer?.cancel();
+    _sleepTimer = Timer(
+      const Duration(minutes: _sleepAfterMinutes),
+      _autoSleep,
+    );
+  }
+
+  /// Veille automatique après immobilité.
+  void _autoSleep() {
+    if (_gpsPaused) return; // déjà en pause manuelle
+    _gpsPaused    = true;
+    _gpsAutoSleep = true;
+    _stopGpsStream();
+    _gpsStatus = 'GPS en veille (immobile $_sleepAfterMinutes min)';
+    debugPrint('GPS: veille automatique');
+    notifyListeners();
+  }
+
+  // ── Pause / reprise manuelle ──────────────────────────────────────────────
+
+  void pauseGps() {
+    if (_gpsPaused || !_gpsAvailable) return;
+    _gpsPaused    = true;
+    _gpsAutoSleep = false;
+    _stopGpsStream();
+    _gpsStatus = 'GPS en pause';
+    debugPrint('GPS: pause manuelle');
+    notifyListeners();
+  }
+
+  void resumeGps() {
+    if (!_gpsAvailable) return;
+    _gpsPaused    = false;
+    _gpsAutoSleep = false;
+    _gpsStatus    = 'GPS reprise…';
+    notifyListeners();
+    _startGpsStream();
+    debugPrint('GPS: reprise');
+  }
+
   void _onGpsPosition(Position pos) {
     final newGps = LatLng(pos.latitude, pos.longitude);
+
+    // Détecter un mouvement réel (> 15m depuis dernière position)
+    final moved = _gpsPosition == null ||
+        _distanceM(_gpsPosition!, newGps) > 15;
+
+    if (moved) {
+      _lastMoveTime = DateTime.now();
+      _resetSleepTimer(); // réinitialiser le timer d'immobilité
+    }
+
     _gpsPosition = newGps;
-    _gpsStatus   = 'GPS ±${pos.accuracy.toStringAsFixed(0)}m';
+    _gpsStatus   = _gpsPaused
+        ? 'GPS en pause'
+        : 'GPS ±${pos.accuracy.toStringAsFixed(0)}m';
 
     if (_positionMode == PositionMode.gps) {
       _updatePosition(newGps);
     }
 
-    // Calibration automatique — mode GPS uniquement (pas en mode épingle)
-    if (_positionMode == PositionMode.gps) {
+    // Calibration automatique — mode GPS uniquement
+    if (_positionMode == PositionMode.gps && moved) {
       _calibrator.onPosition(pos).then((_) {
         if (_munter.isCalibrated) notifyListeners();
       });
     }
 
     notifyListeners();
+  }
+
+  static double _distanceM(LatLng a, LatLng b) {
+    const r  = 6371000.0;
+    const pi = 3.141592653589793;
+    final dLat = (b.lat - a.lat) * pi / 180;
+    final dLng = (b.lng - a.lng) * pi / 180;
+    final x = dLat * dLat + dLng * dLng *
+        (a.lat * pi / 180 < 0 ? -1 : 1).abs().toDouble();
+    // Approximation rapide pour courtes distances
+    final dx = (b.lng - a.lng) * 111320 * _cosApprox(a.lat * pi / 180);
+    final dy = (b.lat - a.lat) * 110540;
+    return sqrt(dx*dx + dy*dy);
+  }
+
+  static double _cosApprox(double x) {
+    final x2 = x * x;
+    return 1 - x2/2 + x2*x2/24;
   }
 
   // ── Mode de positionnement ────────────────────────────────────────────────
