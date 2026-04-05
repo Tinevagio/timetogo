@@ -12,10 +12,17 @@
 @import geolocator_apple;
 #endif
 
+#if __has_include(<objectbox_flutter_libs/ObjectboxFlutterLibsPlugin.h>)
+#import <objectbox_flutter_libs/ObjectboxFlutterLibsPlugin.h>
+#else
+@import objectbox_flutter_libs;
+#endif
+
 @implementation GeneratedPluginRegistrant
 
 + (void)registerWithRegistry:(NSObject<FlutterPluginRegistry>*)registry {
   [GeolocatorPlugin registerWithRegistrar:[registry registrarForPlugin:@"GeolocatorPlugin"]];
+  [ObjectboxFlutterLibsPlugin registerWithRegistrar:[registry registrarForPlugin:@"ObjectboxFlutterLibsPlugin"]];
 }
 
 @end

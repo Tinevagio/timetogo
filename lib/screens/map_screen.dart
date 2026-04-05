@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:provider/provider.dart';
 import '../app_state.dart';
@@ -67,6 +68,7 @@ class _MapScreenState extends State<MapScreen> {
               urlTemplate:          'https://tile.opentopomap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.ghosttime.app',
               maxNativeZoom:        17,
+              tileProvider: FMTCStore('opentopomap').getTileProvider(),
             ),
             IsochroneLayer(
               contours:    state.contours,
@@ -276,9 +278,8 @@ class _StatusBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!visible) return const SizedBox.shrink();
 
-    final isPin      = state.positionMode == PositionMode.pin;
-    final isPaused   = state.gpsPaused;
-    final isAutoSleep = state.gpsAutoSleep;
+    final isPin    = state.positionMode == PositionMode.pin;
+    final isPaused = state.gpsPaused;
 
     Color bgColor;
     IconData icon;
@@ -289,11 +290,9 @@ class _StatusBanner extends StatelessWidget {
       icon    = Icons.push_pin;
       text    = 'Mode épingle — appui long pour déplacer';
     } else if (isPaused) {
-      bgColor = isAutoSleep ? Colors.blueGrey.shade700 : Colors.indigo.shade700;
+      bgColor = Colors.indigo.shade700;
       icon    = Icons.pause_circle_outline;
-      text    = isAutoSleep
-          ? 'GPS en veille (immobile 10 min) — tap pour reprendre'
-          : 'GPS en pause — tap pour reprendre';
+      text    = 'GPS en pause';
     } else if (!state.gpsAvailable) {
       bgColor = Colors.orange.shade800;
       icon    = Icons.gps_off;
@@ -304,47 +303,44 @@ class _StatusBanner extends StatelessWidget {
       text    = '${state.gpsStatus}  •  Appui long = épingle';
     }
 
-    return GestureDetector(
-      // Tap sur le bandeau → reprendre si en pause
-      onTap: isPaused ? () => context.read<GhostTimeState>().resumeGps() : null,
-      child: Material(
-        borderRadius: BorderRadius.circular(12),
-        color: bgColor,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(children: [
-            Icon(icon, size: 16, color: Colors.white70),
-            const SizedBox(width: 8),
-            Expanded(child: Text(text,
-                style: const TextStyle(color: Colors.white, fontSize: 12))),
-            // Bouton pause/reprise
-            if (!isPin && state.gpsAvailable)
-              GestureDetector(
-                onTap: isPaused
-                    ? () => context.read<GhostTimeState>().resumeGps()
-                    : () => context.read<GhostTimeState>().pauseGps(),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(isPaused ? Icons.play_arrow : Icons.pause,
-                        size: 14, color: Colors.white),
-                    const SizedBox(width: 3),
-                    Text(isPaused ? 'Reprendre' : 'Pause',
-                        style: const TextStyle(color: Colors.white, fontSize: 11)),
-                  ]),
-                ),
-              ),
-            const SizedBox(width: 8),
+    return Material(
+      borderRadius: BorderRadius.circular(12),
+      color: bgColor,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(children: [
+          Icon(icon, size: 16, color: Colors.white70),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text,
+              style: const TextStyle(color: Colors.white, fontSize: 12))),
+          // Bouton pause/reprise
+          if (!isPin && state.gpsAvailable) ...[
             GestureDetector(
-              onTap: onClose,
-              child: const Icon(Icons.close, size: 16, color: Colors.white54),
+              onTap: isPaused
+                  ? () => context.read<GhostTimeState>().resumeGps()
+                  : () => context.read<GhostTimeState>().pauseGps(),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(isPaused ? Icons.play_arrow : Icons.pause,
+                      size: 14, color: Colors.white),
+                  const SizedBox(width: 3),
+                  Text(isPaused ? 'Reprendre' : 'Pause',
+                      style: const TextStyle(color: Colors.white, fontSize: 11)),
+                ]),
+              ),
             ),
-          ]),
-        ),
+            const SizedBox(width: 8),
+          ],
+          GestureDetector(
+            onTap: onClose,
+            child: const Icon(Icons.close, size: 16, color: Colors.white54),
+          ),
+        ]),
       ),
     );
   }
