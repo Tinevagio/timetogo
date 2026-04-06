@@ -4,6 +4,9 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
 
     <application
         android:label="TimeToGo"
@@ -11,6 +14,7 @@
         android:icon="@mipmap/ic_launcher"
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="false">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -28,6 +32,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- Foreground service pour GPS continu en arrière-plan -->
+        <service
+            android:name="com.baseflow.geolocator.GeolocatorService"
+            android:foregroundServiceType="location"
+            android:exported="false"/>
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2"/>

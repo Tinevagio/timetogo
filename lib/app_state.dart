@@ -128,9 +128,20 @@ class GhostTimeState extends ChangeNotifier {
       } catch (_) {}
 
       _gpsSub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy:       LocationAccuracy.high,
-          distanceFilter: 20,
+        locationSettings: AndroidSettings(
+          accuracy:            LocationAccuracy.high,
+          distanceFilter:      20,
+          forceLocationManager: false,
+          // Foreground service : maintient le GPS actif même écran éteint
+          foregroundNotificationConfig: const ForegroundNotificationConfig(
+            notificationText:  'TimeToGo suit votre position pour la calibration',
+            notificationTitle: 'TimeToGo — GPS actif',
+            enableWakeLock:    true,
+            notificationIcon:  AndroidResource(
+              name:    'ic_notification',
+              defType: 'drawable',
+            ),
+          ),
         ),
       ).listen(_onGpsPosition, onError: (e) {
         debugPrint('GPS error: $e');
@@ -161,9 +172,19 @@ class GhostTimeState extends ChangeNotifier {
     _gpsStatus = 'GPS reprise…';
     notifyListeners();
     _gpsSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy:       LocationAccuracy.high,
-        distanceFilter: 20,
+      locationSettings: AndroidSettings(
+        accuracy:            LocationAccuracy.high,
+        distanceFilter:      20,
+        forceLocationManager: false,
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText:  'TimeToGo suit votre position pour la calibration',
+          notificationTitle: 'TimeToGo — GPS actif',
+          enableWakeLock:    true,
+          notificationIcon:  AndroidResource(
+            name:    'ic_notification',
+            defType: 'drawable',
+          ),
+        ),
       ),
     ).listen(_onGpsPosition, onError: (e) {
       debugPrint('GPS error: $e');
