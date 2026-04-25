@@ -1,4 +1,6 @@
 // lib/app_state.dart
+import 'package:flutter/widgets.dart';
+
 
 import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, ChangeNotifier;
@@ -19,7 +21,7 @@ enum PositionMode {
 
 // ─── État principal ───────────────────────────────────────────────────────────
 
-class GhostTimeState extends ChangeNotifier {
+class GhostTimeState extends ChangeNotifier with WidgetsBindingObserver {
 
   // ── Profil ────────────────────────────────────────────────────────────────
   munter_lib.ActivityType     _activity = munter_lib.ActivityType.hiking;
@@ -87,12 +89,36 @@ class GhostTimeState extends ChangeNotifier {
   GhostTimeState() {
     _rebuildEngine();
     _initGps();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _gpsSub?.cancel();
     super.dispose();
+  }
+
+  // Gestion du cycle de vie de l'app
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // App revenue au premier plan — redémarrer le GPS si pas en pause manuelle
+        if (!_gpsPaused && _gpsAvailable && _gpsSub == null) {
+          debugPrint('GPS: app resumed → restart stream');
+          _startGpsStream();
+        }
+        break;
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        // App en arrière-plan — le foreground service maintient le GPS
+        // On ne touche pas au stream, le service continue
+        debugPrint('GPS: app en arrière-plan (foreground service actif)');
+        break;
+      default:
+        break;
+    }
   }
 
   // ── GPS ───────────────────────────────────────────────────────────────────
@@ -120,6 +146,7 @@ class GhostTimeState extends ChangeNotifier {
       _gpsAvailable = true;
       _gpsStatus    = 'GPS actif';
 
+      // Position immédiate
       try {
         final pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
@@ -127,25 +154,7 @@ class GhostTimeState extends ChangeNotifier {
         _onGpsPosition(pos);
       } catch (_) {}
 
-      _gpsSub = Geolocator.getPositionStream(
-        locationSettings: AndroidSettings(
-          accuracy:            LocationAccuracy.high,
-          distanceFilter:      20,
-          forceLocationManager: false,
-          // Foreground service : maintient le GPS actif même écran éteint
-          foregroundNotificationConfig: const ForegroundNotificationConfig(
-            notificationText:  'TimeToGo suit votre position pour la calibration',
-            notificationTitle: 'TimeToGo — GPS actif',
-            enableWakeLock:    true,
-            notificationIcon:  AndroidResource(
-              name:    'ic_notification',
-              defType: 'drawable',
-            ),
-          ),
-        ),
-      ).listen(_onGpsPosition, onError: (e) {
-        debugPrint('GPS error: $e');
-      });
+      _startGpsStream();
 
     } catch (e) {
       _gpsStatus = 'Erreur GPS';
@@ -154,27 +163,16 @@ class GhostTimeState extends ChangeNotifier {
     }
   }
 
-  // ── Pause / reprise manuelle ──────────────────────────────────────────────
-
-  void pauseGps() {
-    if (_gpsPaused || !_gpsAvailable) return;
+  /// Démarre (ou redémarre) le stream GPS.
+  /// Annule toujours l'éventuel stream existant avant d'en créer un nouveau
+  /// pour éviter les doublons.
+  void _startGpsStream() {
     _gpsSub?.cancel();
-    _gpsSub   = null;
-    _gpsPaused = true;
-    _gpsStatus = 'GPS en pause';
-    debugPrint('GPS: pause manuelle');
-    notifyListeners();
-  }
-
-  void resumeGps() {
-    if (!_gpsAvailable) return;
-    _gpsPaused = false;
-    _gpsStatus = 'GPS reprise…';
-    notifyListeners();
+    _gpsSub = null;
     _gpsSub = Geolocator.getPositionStream(
       locationSettings: AndroidSettings(
-        accuracy:            LocationAccuracy.high,
-        distanceFilter:      20,
+        accuracy:             LocationAccuracy.high,
+        distanceFilter:       20,
         forceLocationManager: false,
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationText:  'TimeToGo suit votre position pour la calibration',
@@ -188,7 +186,32 @@ class GhostTimeState extends ChangeNotifier {
       ),
     ).listen(_onGpsPosition, onError: (e) {
       debugPrint('GPS error: $e');
+      // En cas d'erreur, tenter une reprise après 5s
+      Future.delayed(const Duration(seconds: 5), () {
+        if (!_gpsPaused && _gpsAvailable) _startGpsStream();
+      });
     });
+    debugPrint('GPS: stream démarré');
+  }
+
+  // ── Pause / reprise manuelle ──────────────────────────────────────────────
+
+  void pauseGps() {
+    if (_gpsPaused || !_gpsAvailable) return;
+    _gpsSub?.cancel();
+    _gpsSub    = null;
+    _gpsPaused = true;
+    _gpsStatus = 'GPS en pause';
+    debugPrint('GPS: pause manuelle');
+    notifyListeners();
+  }
+
+  void resumeGps() {
+    if (!_gpsAvailable) return;
+    _gpsPaused = false;
+    _gpsStatus = 'GPS reprise…';
+    notifyListeners();
+    _startGpsStream();
   }
 
   void _onGpsPosition(Position pos) {
