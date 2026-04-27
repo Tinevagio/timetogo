@@ -1,6 +1,4 @@
 // lib/app_state.dart
-import 'package:flutter/widgets.dart';
-
 
 import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, ChangeNotifier;
@@ -11,6 +9,7 @@ import 'gps_calibrator.dart';
 import 'providers/hgt_elevation_provider.dart';
 import 'providers/open_meteo_elevation_provider.dart';
 import 'providers/demo_elevation_provider.dart';
+import 'package:flutter/widgets.dart';
 
 // ─── Mode de positionnement ───────────────────────────────────────────────────
 
@@ -177,21 +176,29 @@ class GhostTimeState extends ChangeNotifier with WidgetsBindingObserver {
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationText:  'TimeToGo suit votre position pour la calibration',
           notificationTitle: 'TimeToGo — GPS actif',
-          enableWakeLock:    true,
+          enableWakeLock:    false,
           notificationIcon:  AndroidResource(
             name:    'ic_notification',
             defType: 'drawable',
           ),
         ),
       ),
-    ).listen(_onGpsPosition, onError: (e) {
-      debugPrint('GPS error: $e');
-      // En cas d'erreur, tenter une reprise après 5s
-      Future.delayed(const Duration(seconds: 5), () {
-        if (!_gpsPaused && _gpsAvailable) _startGpsStream();
-      });
-    });
-    debugPrint('GPS: stream démarré');
+    ).listen(
+      _onGpsPosition,
+      onError: (e) {
+        debugPrint('GPS ERROR: $e');
+        Future.delayed(const Duration(seconds: 5), () {
+          if (!_gpsPaused && _gpsAvailable) _startGpsStream();
+        });
+      },
+      onDone: () {
+        debugPrint('GPS: stream terminé (onDone)');
+        if (!_gpsPaused && _gpsAvailable) {
+          Future.delayed(const Duration(seconds: 2), _startGpsStream);
+        }
+      },
+    );
+    debugPrint('GPS: stream démarré (distanceFilter=20m)');
   }
 
   // ── Pause / reprise manuelle ──────────────────────────────────────────────
